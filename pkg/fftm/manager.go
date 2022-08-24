@@ -18,13 +18,18 @@ package fftm
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/pprof"
 	"sync"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/hyperledger/firefly-common/pkg/config"
 	"github.com/hyperledger/firefly-common/pkg/fftypes"
 	"github.com/hyperledger/firefly-common/pkg/httpserver"
 	"github.com/hyperledger/firefly-common/pkg/i18n"
+	"github.com/hyperledger/firefly-common/pkg/log"
 	"github.com/hyperledger/firefly-common/pkg/retry"
 	"github.com/hyperledger/firefly-transaction-manager/internal/blocklistener"
 	"github.com/hyperledger/firefly-transaction-manager/internal/confirmations"
@@ -174,6 +179,28 @@ func (m *manager) Start() error {
 	if err := m.restoreStreams(); err != nil {
 		return err
 	}
+
+	var debugServer *http.Server
+	debugPort := config.GetInt(tmconfig.DebugPort)
+	if debugPort >= 0 {
+		r := mux.NewRouter()
+		r.PathPrefix("/debug/pprof/cmdline").HandlerFunc(pprof.Cmdline)
+		r.PathPrefix("/debug/pprof/profile").HandlerFunc(pprof.Profile)
+		r.PathPrefix("/debug/pprof/symbol").HandlerFunc(pprof.Symbol)
+		r.PathPrefix("/debug/pprof/trace").HandlerFunc(pprof.Trace)
+		r.PathPrefix("/debug/pprof/").HandlerFunc(pprof.Index)
+		debugServer = &http.Server{Addr: fmt.Sprintf("localhost:%d", debugPort), Handler: r, ReadHeaderTimeout: 30 * time.Second}
+		go func() {
+			_ = debugServer.ListenAndServe()
+		}()
+		log.L(m.ctx).Debugf("Debug HTTP endpoint listening on localhost:%d", debugPort)
+	}
+
+	defer func() {
+		if debugServer != nil {
+			_ = debugServer.Close()
+		}
+	}()
 
 	blReq := &ffcapi.NewBlockListenerRequest{ListenerContext: m.ctx, ID: fftypes.NewUUID()}
 	blReq.BlockListener, m.blockListenerDone = blocklistener.BufferChannel(m.ctx, m.confirmations)
