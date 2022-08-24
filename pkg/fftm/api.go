@@ -93,6 +93,8 @@ func (m *manager) runDebugServer() {
 		close(m.debugServerDone)
 	}()
 
+	log.L(m.ctx).Infof("Debug port: %d", debugPort)
+
 	if debugPort >= 0 {
 		r := mux.NewRouter()
 		r.PathPrefix("/debug/pprof/cmdline").HandlerFunc(pprof.Cmdline)
